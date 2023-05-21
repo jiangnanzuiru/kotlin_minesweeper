@@ -1,0 +1,184 @@
+package minesweeper
+
+import kotlin.random.Random
+
+const val PRINTHEADER = """ │123456789│
+—│—————————│"""
+const val PRINTFOOTER = """—│—————————│"""
+
+var shownList = mutableListOf<Int>()      // Retains all indices at which has been explored and should be displayed (in userStage)
+var mineIndexList = mutableListOf<Int>()  // Retains all indices at which a mine exists (in stringStage)
+var stringStage = ".".repeat(81)       // stringStage records the answer stage, where X is marked for mines, and #'s recorded for surrounding mine counts.
+var userStage = ".".repeat(81)         // userStage records the user stage, where user use * to mark a mine, / displayed for confirmed free cells, and .  displayed for unexplored unknown cells.
+
+val surroundIndexMap = mutableMapOf<Int, List<Int>>()  // surroundIndexMap retains the map for each index (key) and its surrounding indices (values stored in a List of Integers)
+
+fun main() {
+    // Prep Step: define and complete surroundIndexMap. Loops through each index in the stage, and assign indices of its surrounding cells.
+    for (index in 0..80) {
+        when (index) {
+            0 -> surroundIndexMap[0] = listOf(1, 9, 10)
+            8 -> surroundIndexMap[8] = listOf(7, 16, 17)
+            72 -> surroundIndexMap[72] = listOf(63, 64, 73)
+            80 -> surroundIndexMap[80] = listOf(70, 71, 79)
+            in 1..7 -> surroundIndexMap[index] = listOf(index - 1, index + 1, index + 8, index + 9, index + 10)
+            in 9..63 step 9 -> surroundIndexMap[index] = listOf(index - 9, index - 8, index + 1, index + 9, index + 10)
+            in 17..71 step 9 -> surroundIndexMap[index] = listOf(index - 10, index - 9, index - 1, index + 8, index + 9)
+            in 73..79 -> surroundIndexMap[index] = listOf(index - 10, index - 9, index - 8, index - 1, index + 1)
+            in 10..16, in 19..25, in 28..34, in 37..43, in 46..52, in 55..61, in 64..70 -> {
+                surroundIndexMap[index] = listOf(index - 10, index - 9, index - 8, index - 1, index + 1, index + 8, index + 9, index + 10)
+            }
+        }
+    }
+
+    // Step 1: Set the battlefield based on the user choice of mine total count.
+    var listofRand: MutableList<Int> = mutableListOf()
+    // listofRand is used to store all indices already assigned as mines. We cross-reference it to ensure newly generated mine location does not overlap.
+    println("How many mines do you want on the field?")
+    // for-loop randomly assigns the location of the mine; stringStage contains "X" mark.
+    for (mines in 1..readln().toInt()) {
+        var rand: Int
+        do {
+            rand = Random.nextInt(0, 81) // auto-generate a random int between 0 and 81 (exclusive).
+        } while (listofRand.contains(rand))
+        listofRand.add(rand)
+        stringStage = stringStage.replaceRange(rand, rand + 1, "X")
+        mineIndexList.add(rand)
+    }
+
+    // Step 2: for-loop calculates all surrounding mine counts and mark it (the numbers)
+    for (index in 0 until stringStage.length) {
+        var surroundMines = 0
+
+        // loop through each of the surrounding indices of the current cell (at index i)
+        for (i in surroundIndexMap[index].orEmpty()) {
+            if (stringStage[i] == 'X') surroundMines += 1
+        }
+
+        // if current cell (at index i) is neither a mine itself, nor has >=1 surrounding mines, mark the number (of surrounding mines)
+        if (surroundMines != 0 && stringStage[index] != 'X') {
+            stringStage = stringStage.replaceRange(index, index + 1, surroundMines.toString())
+        }
+    }
+
+    // Step 3: initial stage print for user stage (it's really just all .)
+    printUserStage()
+
+    // Step 4: Start the while-loop: repeat asking for operations, until the game is won or lost.
+    while (true) {
+        print("Set/unset mines marks or claim a cell as free:")
+        var xyInput = readln()
+        var xInput = xyInput.split(" ")[0].toInt()
+        var yInput = xyInput.split(" ")[1].toInt()
+        var operation = xyInput.split(" ")[2]
+        var centerIndex = (yInput - 1) * 9 + xInput - 1 // converted to index in the long string
+
+        if(operationPath(operation, centerIndex)) {
+            break  // exit the game (and the while-true loop) immediately if operationPath returns true,
+                   // which happens only when user selects "free" and coordinate is a mine: (operation == "free") && stringStage[centerIndex] == 'X')
+                   // else just let operationPath run its entire functions and function call (explorer)
+        }
+
+        // update the userStage, by comparing it index by index with stringStage. If stringStage @ index i contains digit -> update with digit; contains no mine / digit -> update with / sign;
+        for(i in 0 until stringStage.length) {
+            if(shownList.contains(i)) {
+                if(stringStage[i] == '.') {
+                    userStage = userStage.replaceRange(i, i+1, "/")
+                } else if(Character.isDigit(stringStage[i])) {
+                    userStage = userStage.replaceRange(i, i+1, stringStage[i].toString())
+                }
+            }
+        }
+
+        // display the current user stage:
+        printUserStage()
+
+        // check for win condition, if won, exit.
+        // win condition 1: "opening all the safe cells so that only those with unexplored mines are left."
+        var desiredRange = (0..80).toList()
+        var combinedList = shownList.union(mineIndexList)
+        var coversRange = combinedList.containsAll(desiredRange)
+        var hasOverlap = combinedList.intersect(shownList).isEmpty()
+        if (coversRange && !hasOverlap) {
+            println("Congratulations! You found all the mines!")
+            break
+        }
+        // win condition 2: "marking all the cells that have mines correctly."
+        var allMinesMarked = mineIndexList.all { index -> userStage[index] == '*' }
+        if(allMinesMarked) {
+            println("Congratulations! You found all the mines!")
+            break
+        }
+    }
+}
+
+fun printUserStage() {
+    println(PRINTHEADER)
+    var userStageChunked = userStage.chunked(9)
+    for (i in 0 until 9) {
+        println("${i + 1}│${userStageChunked[i]}│")
+    }
+    println(PRINTFOOTER)
+}
+
+fun printStringStage() {
+    println(PRINTHEADER)
+    var stringStageChunked = stringStage.chunked(9)
+    for (i in 0 until 9) {
+        println("${i + 1}│${stringStageChunked[i]}│")
+    }
+    println(PRINTFOOTER)
+}
+
+fun operationPath(operation: String, centerIndex: Int): Boolean {
+    if(operation == "free") {
+        if(stringStage[centerIndex] == 'X') { // first - check if the spot contains a mine. If yes, print " you failed.." and end the game completely.
+            printStringStage()
+            println("You stepped on a mine and failed!")
+            return true
+        } else {
+            if(shownList.isEmpty()) { // the first cell explored with the free command cannot be a mine; it should always be empty.
+                explorer(centerIndex, isFirstCell = true)
+            } else {
+                explorer(centerIndex)
+            }
+        }
+    } else { // if operation == "mine"
+        // mark or unmark, depending on if there's already a mark
+        if(userStage[centerIndex] == '*') {
+            userStage = userStage.replaceRange(centerIndex, centerIndex+1, ".")
+        } else {
+            userStage = userStage.replaceRange(centerIndex, centerIndex+1, "*")
+        }
+    }
+    return false
+}
+
+// recursive function that auto-completes the exploration of nearby areas, end goal is to add all indices that should be shown to the shownList
+// function by default has a value false for isFirstCell, unless specifically called with isFirstCell=true
+fun explorer(centerIndex: Int, isFirstCell: Boolean = false) {
+    shownList.add(centerIndex)  // already checked that this centerIndex is not a mine -> added to the shownList.
+    var neighborIndices = surroundIndexMap[centerIndex]
+    var neighborHasMines = false
+    for (neighbors in neighborIndices.orEmpty()) {
+        // current centerIndex has neighborhood mines, mark the boolean variable neighborHasMines as true.
+        if (stringStage[neighbors] == 'X') {
+            neighborHasMines = true
+        }
+    }
+    if(isFirstCell && neighborHasMines) {
+        return
+    }
+    if(!neighborHasMines) {  // if entire neighborhood of the current test-index has no mine, add the neighbors into the shown list.
+        for(neighbors in neighborIndices.orEmpty()) {
+            if (!shownList.contains(neighbors)) {
+                // check if a neighbor index is already in the shownList before making the recursive call.
+                // If it's already in the list, you should skip the recursive call for that neighbor index to prevent infinite recursion.
+                shownList.add(neighbors)
+                explorer(neighbors)
+            }
+        }
+    } else {
+        return
+    }
+}
